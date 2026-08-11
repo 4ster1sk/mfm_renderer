@@ -19,7 +19,10 @@ class MfmParentWidgetState extends State<MfmParentWidget> {
     final List<MfmNode> actualNode;
     final parentMfmNode = Mfm.of(context).mfmNode;
     if (nodes == null && parentMfmNode == null) {
-      actualNode = const MfmParser().parse(Mfm.of(context).mfmText!);
+      actualNode = const MfmParser().parse(
+        Mfm.of(context).mfmText!,
+        defaultHost: Mfm.of(context).defaultHost,
+      );
     } else if (parentMfmNode != null) {
       actualNode = parentMfmNode;
     } else {

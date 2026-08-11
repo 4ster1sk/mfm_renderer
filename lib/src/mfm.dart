@@ -86,6 +86,9 @@ class Mfm extends InheritedWidget {
   /// line height.
   final double lineHeight;
 
+  /// default host for mentions which are not specified host.
+  final String? defaultHost;
+
   /// base text style.
   final TextStyle? style;
 
@@ -160,6 +163,7 @@ class Mfm extends InheritedWidget {
     this.searchBuilder,
     this.unixTimeBuilder,
     this.lineHeight = 1.35,
+    this.defaultHost,
     this.style,
     this.boldStyle = const TextStyle(fontWeight: FontWeight.bold),
     this.linkStyle,
@@ -198,6 +202,7 @@ class Mfm extends InheritedWidget {
         oldWidget.quoteBuilder != quoteBuilder ||
         oldWidget.unixTimeBuilder != unixTimeBuilder ||
         oldWidget.lineHeight != lineHeight ||
+        oldWidget.defaultHost != defaultHost ||
         oldWidget.style != style ||
         oldWidget.boldStyle != boldStyle ||
         oldWidget.linkStyle != linkStyle ||
