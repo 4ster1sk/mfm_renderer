@@ -1,0 +1,3 @@
+tags:
+  benchmark:
+    description: 計測用。CI では skip してよい。
