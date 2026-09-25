@@ -15,6 +15,7 @@ import 'package:mfm/src/functions/mfm_fn_tada.dart';
 import 'package:mfm/src/functions/mfm_fn_twitch.dart';
 import 'package:mfm/src/functions/mfm_jelly.dart';
 import 'package:mfm/src/mfm_element_widget.dart';
+import 'package:mfm/src/mfm_gesture_recognizer_pool.dart';
 import 'package:mfm/src/functions/mfm_fn_rainbow.dart';
 import 'package:mfm/src/mfm_inline_span.dart';
 
@@ -26,13 +27,26 @@ class MfmFnSpan extends TextSpan {
   final MfmFn function;
   final BuildContext context;
   final int depth;
+
+  /// タップ領域の recognizer を貸し出すプール。[MfmInlineSpan] から引き継ぐ。
+  final MfmGestureRecognizerPool? pool;
+
   late final List<InlineSpan> _cachedSpan;
+
+  /// 子孫に改行が含まれるか。ノードごとに 1 度だけ判定する。
+  late final bool _hasNewLine = findChildrenNewLine(function.children ?? []);
+
+  /// [_hasNewLine] から決まる配置。
+  PlaceholderAlignment get _alignment => _hasNewLine
+      ? PlaceholderAlignment.aboveBaseline
+      : PlaceholderAlignment.middle;
 
   MfmFnSpan({
     required this.function,
     required super.style,
     required this.context,
     required this.depth,
+    this.pool,
     super.recognizer,
   }) {
     _cachedSpan = buildChildren();
@@ -51,11 +65,6 @@ class MfmFnSpan extends TextSpan {
     return false;
   }
 
-  PlaceholderAlignment resolveAlignment(List<MfmNode> nodes) =>
-      findChildrenNewLine(nodes)
-          ? PlaceholderAlignment.aboveBaseline
-          : PlaceholderAlignment.middle;
-
   double? validTime(String? time) {
     if (time == null) return null;
     final value =
@@ -67,10 +76,14 @@ class MfmFnSpan extends TextSpan {
   }
 
   List<InlineSpan> buildChildren() {
+    // Mfm.of は依存登録を伴うので、buildChildren 1 回につき 1 度だけ引く。
+    final mfm = Mfm.of(context);
+
     if (function.name == "x2") {
       return [
         MfmInlineSpan(
           context: context,
+          pool: pool,
           style: style?.merge(
               TextStyle(height: 0, fontSize: (style?.fontSize ?? 22) * 2)),
           nodes: function.children,
@@ -82,6 +95,7 @@ class MfmFnSpan extends TextSpan {
       return [
         MfmInlineSpan(
           context: context,
+          pool: pool,
           style: style?.merge(
               TextStyle(height: 0, fontSize: (style?.fontSize ?? 22) * 4)),
           nodes: function.children,
@@ -94,6 +108,7 @@ class MfmFnSpan extends TextSpan {
       return [
         MfmInlineSpan(
           context: context,
+          pool: pool,
           style: style?.merge(TextStyle(
               height: 0,
               fontSize:
@@ -108,13 +123,13 @@ class MfmFnSpan extends TextSpan {
       return [
         WidgetSpan(
           style: style,
-          alignment: resolveAlignment(function.children ?? []),
+          alignment: _alignment,
           baseline: TextBaseline.alphabetic,
           child: MfmElementWidget(
             nodes: function.children,
             style: style?.merge(TextStyle(
                 color: (function.args["color"] as String?)?.color ?? Colors.red,
-                height: Mfm.of(context).lineHeight)),
+                height: mfm.lineHeight)),
             depth: depth + 1,
           ),
         )
@@ -125,7 +140,7 @@ class MfmFnSpan extends TextSpan {
       return [
         WidgetSpan(
           style: style,
-          alignment: resolveAlignment(function.children ?? []),
+          alignment: _alignment,
           baseline: TextBaseline.alphabetic,
           child: Container(
             decoration: BoxDecoration(
@@ -133,7 +148,7 @@ class MfmFnSpan extends TextSpan {
             ),
             child: MfmElementWidget(
               nodes: function.children,
-              style: style?.copyWith(height: Mfm.of(context).lineHeight),
+              style: style?.copyWith(height: mfm.lineHeight),
               depth: depth + 1,
             ),
           ),
@@ -143,7 +158,7 @@ class MfmFnSpan extends TextSpan {
 
     if (function.name == "border") {
       final color = (function.args["color"] as String?)?.color ??
-          Mfm.of(context).defaultBorderColor;
+          mfm.defaultBorderColor;
       final styleIndex = MfmFnBorderStyle.values
           .map((e) => e.name)
           .toList()
@@ -160,7 +175,7 @@ class MfmFnSpan extends TextSpan {
       return [
         WidgetSpan(
           style: style,
-          alignment: resolveAlignment(function.children ?? []),
+          alignment: _alignment,
           baseline: TextBaseline.alphabetic,
           child: MfmFnBorder(
             color: color,
@@ -171,7 +186,7 @@ class MfmFnSpan extends TextSpan {
             child: MfmElementWidget(
               nodes: function.children,
               depth: depth + 1,
-              style: style?.copyWith(height: Mfm.of(context).lineHeight),
+              style: style?.copyWith(height: mfm.lineHeight),
             ),
           ),
         )
@@ -181,19 +196,20 @@ class MfmFnSpan extends TextSpan {
     if (function.name == "font") {
       var fontStyle = style;
       if (function.args.containsKey("serif")) {
-        fontStyle = style?.merge(Mfm.of(context).serifStyle);
+        fontStyle = style?.merge(mfm.serifStyle);
       } else if (function.args.containsKey("monospace")) {
-        fontStyle = style?.merge(Mfm.of(context).monospaceStyle);
+        fontStyle = style?.merge(mfm.monospaceStyle);
       } else if (function.args.containsKey("cursive")) {
-        fontStyle = style?.merge(Mfm.of(context).cursiveStyle);
+        fontStyle = style?.merge(mfm.cursiveStyle);
       } else if (function.args.containsKey("fantasy")) {
-        fontStyle = style?.merge(Mfm.of(context).fantasyStyle);
+        fontStyle = style?.merge(mfm.fantasyStyle);
       }
 
       return [
         MfmInlineSpan(
             nodes: function.children,
             context: context,
+            pool: pool,
             style: fontStyle,
             depth: depth + 1)
       ];
@@ -203,7 +219,7 @@ class MfmFnSpan extends TextSpan {
       final deg = double.tryParse(function.args["deg"] ?? "") ?? 90.0;
       return [
         WidgetSpan(
-          alignment: resolveAlignment(function.children ?? []),
+          alignment: _alignment,
           baseline: TextBaseline.alphabetic,
           child: Transform.rotate(
               angle: deg * pi / 180,
@@ -227,7 +243,7 @@ class MfmFnSpan extends TextSpan {
 
       return [
         WidgetSpan(
-          alignment: resolveAlignment(function.children ?? []),
+          alignment: _alignment,
           baseline: TextBaseline.alphabetic,
           child: Transform.scale(
             scaleX: x,
@@ -249,7 +265,7 @@ class MfmFnSpan extends TextSpan {
 
       return [
         WidgetSpan(
-          alignment: resolveAlignment(function.children ?? []),
+          alignment: _alignment,
           baseline: TextBaseline.alphabetic,
           child: Transform.translate(
             offset: Offset(x * defaultFontSize, y * defaultFontSize),
@@ -264,14 +280,14 @@ class MfmFnSpan extends TextSpan {
     }
 
     if (function.name == "tada") {
-      final speed = Mfm.of(context).isUseAnimation
+      final speed = mfm.isUseAnimation
           ? validTime(function.args["speed"]) ?? 1
           : 0.0;
 
       final delay = validTime(function.args["delay"]) ?? 0;
       return [
         WidgetSpan(
-            alignment: resolveAlignment(function.children ?? []),
+            alignment: _alignment,
             baseline: TextBaseline.alphabetic,
             child: MfmFnTada(
               speed: speed,
@@ -289,7 +305,7 @@ class MfmFnSpan extends TextSpan {
     if (function.name == "blur") {
       return [
         WidgetSpan(
-          alignment: resolveAlignment(function.children ?? []),
+          alignment: _alignment,
           baseline: TextBaseline.alphabetic,
           child: MfmFnBlur(
             child: MfmElementWidget(
@@ -309,7 +325,7 @@ class MfmFnSpan extends TextSpan {
       if ((!isVertical && !isHorizontal) || (isHorizontal && !isVertical)) {
         return [
           WidgetSpan(
-            alignment: resolveAlignment(function.children ?? []),
+            alignment: _alignment,
             baseline: TextBaseline.alphabetic,
             child: Transform(
               transform: Matrix4.rotationY(pi),
@@ -327,7 +343,7 @@ class MfmFnSpan extends TextSpan {
       if (isVertical && !isHorizontal) {
         return [
           WidgetSpan(
-            alignment: resolveAlignment(function.children ?? []),
+            alignment: _alignment,
             baseline: TextBaseline.alphabetic,
             child: Transform(
               transform: Matrix4.rotationX(pi),
@@ -344,7 +360,7 @@ class MfmFnSpan extends TextSpan {
 
       return [
         WidgetSpan(
-          alignment: resolveAlignment(function.children ?? []),
+          alignment: _alignment,
           baseline: TextBaseline.alphabetic,
           child: Transform(
             transform: Matrix4.rotationZ(pi),
@@ -362,14 +378,14 @@ class MfmFnSpan extends TextSpan {
     if (function.name == "ruby") {
       final children = function.children;
       if (children == null) return [];
-      final alignment = findChildrenNewLine(function.children ?? [])
+      final alignment = _hasNewLine
           ? PlaceholderAlignment.middle
           : PlaceholderAlignment.aboveBaseline;
 
       if (children.length == 1) {
         final child = children[0];
         final text = child is MfmText
-            ? Mfm.of(context).isNyaize
+            ? mfm.isNyaize
                 ? child.text.nyaize
                 : child.text
             : "";
@@ -395,7 +411,7 @@ class MfmFnSpan extends TextSpan {
       } else {
         final rt = children.last;
         final text = rt is MfmText
-            ? Mfm.of(context).isNyaize
+            ? mfm.isNyaize
                 ? rt.text.nyaize
                 : rt.text
             : "";
@@ -432,12 +448,12 @@ class MfmFnSpan extends TextSpan {
       }
 
       return [
-        Mfm.of(context).unixTimeBuilder?.call(context, date, style) ??
+        mfm.unixTimeBuilder?.call(context, date, style) ??
             _defaultUnixTimeBuilder(context, date, style)
       ];
     }
 
-    if (function.name == "rainbow" && Mfm.of(context).isUseAnimation) {
+    if (function.name == "rainbow" && mfm.isUseAnimation) {
       final speed = validTime(function.args["speed"]) ?? 1;
       final delay = validTime(function.args["delay"]) ?? 0;
       return [
@@ -452,7 +468,7 @@ class MfmFnSpan extends TextSpan {
       ];
     }
 
-    if (function.name == "shake" && Mfm.of(context).isUseAnimation) {
+    if (function.name == "shake" && mfm.isUseAnimation) {
       final speed = validTime(function.args["speed"]) ?? 0.5;
       final delay = validTime(function.args["delay"]) ?? 0;
       return [
@@ -467,7 +483,7 @@ class MfmFnSpan extends TextSpan {
       ];
     }
 
-    if (function.name == "jelly" && Mfm.of(context).isUseAnimation) {
+    if (function.name == "jelly" && mfm.isUseAnimation) {
       final speed = validTime(function.args["speed"]) ?? 1.0;
       final delay = validTime(function.args["delay"]) ?? 0;
       return [
@@ -482,7 +498,7 @@ class MfmFnSpan extends TextSpan {
       ];
     }
 
-    if (function.name == "twitch" && Mfm.of(context).isUseAnimation) {
+    if (function.name == "twitch" && mfm.isUseAnimation) {
       final speed = validTime(function.args["speed"]) ?? 0.5;
       final delay = validTime(function.args["delay"]) ?? 0;
       return [
@@ -497,7 +513,7 @@ class MfmFnSpan extends TextSpan {
       ];
     }
 
-    if (function.name == "bounce" && Mfm.of(context).isUseAnimation) {
+    if (function.name == "bounce" && mfm.isUseAnimation) {
       final speed = validTime(function.args["speed"]) ?? 0.75;
       final delay = validTime(function.args["delay"]) ?? 0;
       return [
@@ -512,7 +528,7 @@ class MfmFnSpan extends TextSpan {
       ];
     }
 
-    if (function.name == "jump" && Mfm.of(context).isUseAnimation) {
+    if (function.name == "jump" && mfm.isUseAnimation) {
       final speed = validTime(function.args["speed"]) ?? 0.75;
       final delay = validTime(function.args["delay"]) ?? 0;
       return [
@@ -527,7 +543,7 @@ class MfmFnSpan extends TextSpan {
       ];
     }
 
-    if (function.name == "spin" && Mfm.of(context).isUseAnimation) {
+    if (function.name == "spin" && mfm.isUseAnimation) {
       final speed = validTime(function.args["speed"]) ?? 1.5;
       final delay = validTime(function.args["delay"]) ?? 0;
       final type = function.args.containsKey("x")
@@ -574,6 +590,7 @@ class MfmFnSpan extends TextSpan {
     return [
       MfmInlineSpan(
           context: context,
+          pool: pool,
           nodes: function.children,
           style: style,
           depth: depth + 1)
