@@ -7,6 +7,7 @@ import 'package:mfm/src/mfm_align_scope.dart';
 import 'package:mfm/src/mfm_default_search_widget.dart';
 import 'package:mfm/src/mfm_element_widget.dart';
 import 'package:mfm/src/mfm_fn_span.dart';
+import 'package:mfm/src/mfm_gesture_recognizer_pool.dart';
 
 Widget _defaultEmojiBuilder(
         BuildContext context, String emojiName, TextStyle? style) =>
@@ -89,6 +90,10 @@ class MfmInlineSpan extends TextSpan {
   final BuildContext context;
   final int depth;
 
+  /// タップ領域の recognizer を貸し出すプール。ルートの [MfmElementWidget] が所有し、
+  /// 入れ子のスパンにもそのまま引き継がれる。
+  final MfmGestureRecognizerPool? pool;
+
   late final List<InlineSpan> _children;
 
   MfmInlineSpan({
@@ -96,20 +101,27 @@ class MfmInlineSpan extends TextSpan {
     required super.style,
     required this.context,
     required this.depth,
+    this.pool,
     super.recognizer,
   }) {
     _children = buildChildren();
   }
 
+  TapGestureRecognizer _tap(VoidCallback onTap) =>
+      pool?.tap(onTap) ?? (TapGestureRecognizer()..onTap = onTap);
+
   List<InlineSpan> buildChildren() {
+    // Mfm.of は毎回 InheritedWidget への依存登録を伴い、ノード数ぶん呼ぶと無視できない。
+    // buildChildren 1 回につき 1 度だけ引いてローカルに持つ。
+    final mfm = Mfm.of(context);
+    final isNyaize = mfm.isNyaize;
+
     return [
-      if (depth == 0) ...Mfm.of(context).prefixSpan,
-      for (final node in nodes ?? [])
+      if (depth == 0) ...mfm.prefixSpan,
+      for (final node in nodes ?? <MfmNode>[])
         if (node is MfmText)
           TextSpan(
-            text: Mfm.of(context).isNyaize
-                ? node.text.nyaize
-                : node.text, /*style: style*/
+            text: isNyaize ? node.text.nyaize : node.text, /*style: style*/
           )
         else if (node is MfmCenter)
           WidgetSpan(
@@ -130,66 +142,68 @@ class MfmInlineSpan extends TextSpan {
           WidgetSpan(
             alignment: PlaceholderAlignment.baseline,
             baseline: TextBaseline.alphabetic,
-            child:
-                (Mfm.of(context).codeBlockBuilder ?? _defaultCodeBlockBuilder)
-                    .call(context, node.code, node.lang),
+            child: (mfm.codeBlockBuilder ?? _defaultCodeBlockBuilder)
+                .call(context, node.code, node.lang),
           )
         else if (node is MfmSearch)
           WidgetSpan(
-              child: (Mfm.of(context).searchBuilder ?? _defaultSearchBuilder)
-                  .call(context, node.query, Mfm.of(context).searchTap))
+              child: (mfm.searchBuilder ?? _defaultSearchBuilder)
+                  .call(context, node.query, mfm.searchTap))
         else if (node is MfmEmojiCode)
           WidgetSpan(
               alignment: PlaceholderAlignment.middle,
               child: DefaultTextStyle(
                   style: style ?? const TextStyle(),
-                  child: (Mfm.of(context).emojiBuilder ?? _defaultEmojiBuilder)
+                  child: (mfm.emojiBuilder ?? _defaultEmojiBuilder)
                       .call(context, node.name, style)))
         else if (node is MfmUnicodeEmoji)
-          (Mfm.of(context).unicodeEmojiBuilder ?? _defaultUnicodeEmojiBuilder)
+          (mfm.unicodeEmojiBuilder ?? _defaultUnicodeEmojiBuilder)
               .call(context, node.emoji, style)
         else if (node is MfmBold)
           MfmInlineSpan(
               context: context,
-              style: style?.merge(Mfm.of(context).boldStyle),
+              style: style?.merge(mfm.boldStyle),
               nodes: node.children,
-              depth: depth + 1)
+              depth: depth + 1,
+              pool: pool)
         else if (node is MfmSmall)
           MfmInlineSpan(
               context: context,
               style: style?.merge(
-                  (Mfm.of(context).smallStyleBuilder ?? _defaultSmallStyleBuilder)
+                  (mfm.smallStyleBuilder ?? _defaultSmallStyleBuilder)
                       .call(context, style?.fontSize)),
               nodes: node.children,
-              depth: depth + 1)
+              depth: depth + 1,
+              pool: pool)
         else if (node is MfmItalic)
           MfmInlineSpan(
               context: context,
               style: style?.merge(const TextStyle(fontStyle: FontStyle.italic)),
               nodes: node.children,
-              depth: depth + 1)
+              depth: depth + 1,
+              pool: pool)
         else if (node is MfmStrike)
           MfmInlineSpan(
               context: context,
-              style:
-                  style?.merge(const TextStyle(decoration: TextDecoration.lineThrough)),
+              style: style?.merge(
+                  const TextStyle(decoration: TextDecoration.lineThrough)),
               nodes: node.children,
-              depth: depth + 1)
+              depth: depth + 1,
+              pool: pool)
         else if (node is MfmPlain)
           TextSpan(text: node.text, style: style)
         else if (node is MfmInlineCode)
           WidgetSpan(
             alignment: PlaceholderAlignment.baseline,
             baseline: TextBaseline.alphabetic,
-            child:
-                (Mfm.of(context).inlineCodeBuilder ?? _defaultInlineCodeBuilder)
-                    .call(context, node.code, style),
+            child: (mfm.inlineCodeBuilder ?? _defaultInlineCodeBuilder)
+                .call(context, node.code, style),
           )
         else if (node is MfmQuote)
           WidgetSpan(
             alignment: PlaceholderAlignment.baseline,
             baseline: TextBaseline.alphabetic,
-            child: (Mfm.of(context).quoteBuilder ?? _defaultQuoteBuilder).call(
+            child: (mfm.quoteBuilder ?? _defaultQuoteBuilder).call(
               context,
               MfmElementWidget(
                 nodes: node.children,
@@ -201,23 +215,21 @@ class MfmInlineSpan extends TextSpan {
         else if (node is MfmMention)
           TextSpan(
             style: style?.merge(
-              Mfm.of(context).mentionStyle ??
+              mfm.mentionStyle ??
                   TextStyle(color: Theme.of(context).primaryColor),
             ),
             text: node.acct.tight,
-            recognizer: TapGestureRecognizer()
-              ..onTap = () => Mfm.of(context)
-                  .mentionTap
-                  ?.call(node.username, node.host, node.acct),
+            recognizer: _tap(
+                () => mfm.mentionTap?.call(node.username, node.host, node.acct)),
           )
         else if (node is MfmHashTag)
           TextSpan(
               style: style?.merge(
-                Mfm.of(context).hashtagStyle ??
+                mfm.hashtagStyle ??
                     TextStyle(color: Theme.of(context).primaryColor),
               ),
               text: "#${node.hashTag.tight}",
-              recognizer: TapGestureRecognizer()..onTap = () => Mfm.of(context).hashtagTap?.call(node.hashTag))
+              recognizer: _tap(() => mfm.hashtagTap?.call(node.hashTag)))
         else if (node is MfmLink)
           WidgetSpan(
             alignment: PlaceholderAlignment.baseline,
@@ -227,10 +239,10 @@ class MfmInlineSpan extends TextSpan {
               child: Tooltip(
                 message: node.url,
                 child: GestureDetector(
-                  onTap: () => Mfm.of(context).linkTap?.call(node.url),
+                  onTap: () => mfm.linkTap?.call(node.url),
                   child: MfmElementWidget(
                     style: style?.merge(
-                      Mfm.of(context).linkStyle ??
+                      mfm.linkStyle ??
                           TextStyle(color: Theme.of(context).primaryColor),
                     ),
                     nodes: node.children,
@@ -241,9 +253,18 @@ class MfmInlineSpan extends TextSpan {
             ),
           )
         else if (node is MfmURL)
-          TextSpan(style: style?.merge(Mfm.of(context).linkStyle ?? TextStyle(color: Theme.of(context).primaryColor)), text: node.value.decodeUri.tight, recognizer: TapGestureRecognizer()..onTap = () => Mfm.of(context).linkTap?.call(node.value))
+          TextSpan(
+              style: style?.merge(mfm.linkStyle ??
+                  TextStyle(color: Theme.of(context).primaryColor)),
+              text: node.value.decodeUri.tight,
+              recognizer: _tap(() => mfm.linkTap?.call(node.value)))
         else if (node is MfmFn)
-          MfmFnSpan(context: context, style: style, function: node, depth: depth + 1)
+          MfmFnSpan(
+              context: context,
+              style: style,
+              function: node,
+              depth: depth + 1,
+              pool: pool)
         else if (node is MfmMathBlock)
           TextSpan(style: style, text: node.formula)
         else if (node is MfmMathInline)
@@ -257,7 +278,7 @@ class MfmInlineSpan extends TextSpan {
                 style: style,
                 depth: depth + 1,
               )),
-      if (depth == 0) ...Mfm.of(context).suffixSpan
+      if (depth == 0) ...mfm.suffixSpan
     ];
   }
 

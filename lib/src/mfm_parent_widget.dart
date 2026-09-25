@@ -14,22 +14,32 @@ class MfmParentWidget extends StatefulWidget {
 class MfmParentWidgetState extends State<MfmParentWidget> {
   List<MfmNode>? nodes;
 
+  /// [nodes] がどのテキストをパースした結果なのか。
+  /// 同じテキストの再ビルドでパースをやり直さないために持つ。
+  String? _parsedText;
+
   @override
   Widget build(BuildContext context) {
+    // Mfm.of は InheritedWidget への依存登録を伴うので、ビルド 1 回につき 1 度だけ引く。
+    final mfm = Mfm.of(context);
+
     final List<MfmNode> actualNode;
-    final parentMfmNode = Mfm.of(context).mfmNode;
-    if (nodes == null && parentMfmNode == null) {
-      actualNode = const MfmParser().parse(Mfm.of(context).mfmText!);
-    } else if (parentMfmNode != null) {
+    final parentMfmNode = mfm.mfmNode;
+    if (parentMfmNode != null) {
       actualNode = parentMfmNode;
     } else {
+      final mfmText = mfm.mfmText!;
+      if (nodes == null || _parsedText != mfmText) {
+        nodes = const MfmParser().parse(mfmText);
+        _parsedText = mfmText;
+      }
       actualNode = nodes!;
     }
 
     final style = Theme.of(context)
         .textTheme
         .bodyMedium!
-        .merge(Mfm.of(context).style ?? const TextStyle())
+        .merge(mfm.style ?? const TextStyle())
         .merge(const TextStyle(height: 0));
 
     final scaledStyle = style.copyWith(
@@ -38,8 +48,8 @@ class MfmParentWidgetState extends State<MfmParentWidget> {
     return MfmFnBlurStateScope(
       child: DefaultTextStyle.merge(
         style: scaledStyle,
-        overflow: Mfm.of(context).overflow,
-        maxLines: Mfm.of(context).maxLines,
+        overflow: mfm.overflow,
+        maxLines: mfm.maxLines,
         child: Text.rich(
           TextSpan(style: style, children: [
             WidgetSpan(
@@ -52,7 +62,7 @@ class MfmParentWidgetState extends State<MfmParentWidget> {
               ),
             ),
           ]),
-          strutStyle: StrutStyle(height: Mfm.of(context).lineHeight),
+          strutStyle: StrutStyle(height: mfm.lineHeight),
           textScaler: MediaQuery.of(context).textScaler,
         ),
       ),

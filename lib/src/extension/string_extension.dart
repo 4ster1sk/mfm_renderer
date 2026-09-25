@@ -1,10 +1,57 @@
 import 'package:flutter/widgets.dart';
 
+/// [StringExtensions.tight] の結果キャッシュ。
+///
+/// mention / hashtag / URL は再ビルドごとに同じ文字列へ `tight` がかかるため、
+/// grapheme 分割をやり直さずに済むよう控えめな上限付きでキャッシュする。
+final Map<String, String> _tightCache = {};
+
+/// キャッシュの上限。タイムライン数画面ぶんの mention / URL が入る程度。
+const int _tightCacheLimit = 512;
+
+/// [_tightFast] で扱える文字の範囲（表示可能な ASCII）。
+/// この範囲の文字は必ず 1 文字が 1 つの grapheme cluster になるので、
+/// `characters` を通さずに組み立てられる。`\r\n` のような複数コードユニットで
+/// 1 cluster になる組み合わせを避けるため、制御文字は除外している。
+bool _isFastAscii(String value) {
+  for (var i = 0; i < value.length; i++) {
+    final c = value.codeUnitAt(i);
+    if (c < 0x20 || c > 0x7E) return false;
+  }
+  return true;
+}
+
+String _tightFast(String value) {
+  final buffer = StringBuffer();
+  for (var i = 0; i < value.length; i++) {
+    buffer.writeCharCode(0x200B);
+    buffer.writeCharCode(value.codeUnitAt(i));
+  }
+  buffer.writeCharCode(0x200B);
+  return buffer.toString();
+}
+
+String _tightSlow(String value) {
+  return Characters(value)
+      .replaceAll(Characters(''), Characters('\u{200B}'))
+      .toString();
+}
+
 extension StringExtensions on String {
+  /// grapheme cluster の境界すべてに ZWSP を挟み、どこでも折り返せるようにする。
   String get tight {
-    return Characters(this)
-        .replaceAll(Characters(''), Characters('\u{200B}'))
-        .toString();
+    if (isEmpty) return '\u{200B}';
+
+    final cached = _tightCache[this];
+    if (cached != null) return cached;
+
+    final result = _isFastAscii(this) ? _tightFast(this) : _tightSlow(this);
+
+    if (_tightCache.length >= _tightCacheLimit) {
+      _tightCache.clear();
+    }
+    _tightCache[this] = result;
+    return result;
   }
 
   String get decodeUri {
